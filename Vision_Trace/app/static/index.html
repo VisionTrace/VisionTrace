@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Vision Trace OSINT Engine</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+
+<style>
+
+body {
+    margin: 0;
+    font-family: 'Inter', sans-serif;
+    background: radial-gradient(circle at top, #111 0%, #000 100%);
+    color: #fff;
+    overflow-x: hidden;
+}
+
+/* Header */
+.header {
+    text-align: center;
+    padding: 40px 20px;
+    font-family: 'Orbitron', sans-serif;
+    font-size: 28px;
+    letter-spacing: 3px;
+    color: #00e5ff;
+    text-shadow: 0 0 20px #00e5ff;
+}
+
+/* Glass Card */
+.card {
+    background: rgba(255,255,255,0.05);
+    backdrop-filter: blur(15px);
+    border-radius: 16px;
+    padding: 25px;
+    margin: 20px auto;
+    width: 85%;
+    box-shadow: 0 0 30px rgba(0, 229, 255, 0.2);
+    transition: 0.3s ease;
+}
+
+.card:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 0 50px rgba(0, 229, 255, 0.4);
+}
+
+/* Inputs */
+input {
+    padding: 12px;
+    border-radius: 8px;
+    border: none;
+    width: 220px;
+    margin: 10px;
+    background: #111;
+    color: #fff;
+    border: 1px solid #00e5ff;
+}
+
+input:focus {
+    outline: none;
+    box-shadow: 0 0 15px #00e5ff;
+}
+
+/* Button */
+button {
+    padding: 12px 20px;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    background: linear-gradient(45deg, #00e5ff, #00ff9c);
+    font-weight: 600;
+    transition: 0.3s;
+}
+
+button:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 25px #00ff9c;
+}
+
+/* Status */
+#status {
+    font-weight: 600;
+    margin-top: 10px;
+}
+
+/* Progress bar */
+.progress-container {
+    width: 100%;
+    background: #222;
+    border-radius: 20px;
+    overflow: hidden;
+    margin-top: 15px;
+}
+
+.progress-bar {
+    height: 12px;
+    width: 0%;
+    background: linear-gradient(90deg, #00e5ff, #00ff9c);
+    transition: width 1s ease;
+}
+
+/* Images */
+.image-container {
+    position: relative;
+    display: inline-block;
+    margin: 15px;
+}
+
+.image-container img {
+    max-width: 400px;
+    border-radius: 12px;
+    transition: 0.3s;
+}
+
+.image-container img:hover {
+    transform: scale(1.02);
+}
+
+.owner-box {
+    position: absolute;
+    border: 3px solid #00ff9c;
+    box-shadow: 0 0 20px #00ff9c;
+    border-radius: 6px;
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0% { box-shadow: 0 0 10px #00ff9c; }
+    50% { box-shadow: 0 0 25px #00ff9c; }
+    100% { box-shadow: 0 0 10px #00ff9c; }
+}
+
+/* Report styling */
+pre {
+    background: #111;
+    padding: 20px;
+    border-radius: 12px;
+    overflow-x: auto;
+    font-size: 14px;
+    border: 1px solid #00e5ff;
+}
+
+.section-title {
+    font-family: 'Orbitron';
+    color: #00ff9c;
+    margin-bottom: 15px;
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="header">
+VISION TRACE – OSINT INTELLIGENCE DASHBOARD
+</div>
+
+<div class="card">
+    <div class="section-title">Target Input</div>
+
+    Instagram:
+    <input id="instagram" placeholder="instagram username">
+
+    X:
+    <input id="twitter" placeholder="X username">
+
+    <button onclick="startAnalysis()">Start Deep Scan</button>
+
+    <div id="status">Idle</div>
+
+    <div class="progress-container">
+        <div class="progress-bar" id="progress"></div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="section-title">Final Intelligence Report</div>
+    <pre id="report"></pre>
+</div>
+
+<div class="card">
+    <div class="section-title">Instagram Owner Detection</div>
+    <div id="images"></div>
+</div>
+
+<div class="card">
+    <div class="section-title">Twitter Analysis</div>
+    <pre id="twitter"></pre>
+</div>
+
+<script>
+
+function animateProgress(percent){
+    document.getElementById("progress").style.width = percent + "%";
+}
+
+async function startAnalysis() {
+
+    document.getElementById("images").innerHTML = "";
+    document.getElementById("twitter").innerText = "";
+    document.getElementById("report").innerText = "";
+    document.getElementById("status").innerText = "Initializing Scan...";
+    animateProgress(10);
+
+    const insta = document.getElementById("instagram").value.trim();
+    const twitter = document.getElementById("twitter").value.trim();
+
+    const res = await fetch("/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            instagram: insta || null,
+            twitter: twitter || null
+        })
+    });
+
+    const data = await res.json();
+
+    if (!data.job_id) {
+        alert("Failed to start job");
+        return;
+    }
+
+    pollStatus(data.job_id);
+}
+
+async function pollStatus(job_id) {
+
+    const interval = setInterval(async () => {
+
+        const res = await fetch("/status/" + job_id);
+        const data = await res.json();
+
+        document.getElementById("status").innerText = "Status: " + data.status;
+
+        if (data.status === "processing") animateProgress(60);
+
+        if (data.status === "completed") {
+            clearInterval(interval);
+            animateProgress(100);
+
+            if (data.result.instagram) {
+                await loadOwner(data.result.instagram);
+                await loadReport(data.result.instagram);
+            }
+
+            if (data.result.twitter) {
+                await loadTwitter(data.result.twitter);
+                await loadReport(data.result.twitter);
+            }
+
+            document.getElementById("status").innerText = "Scan Complete ✔";
+        }
+
+        if (data.status === "failed") {
+            clearInterval(interval);
+            animateProgress(0);
+            document.getElementById("status").innerText = "Scan Failed ❌";
+        }
+
+    }, 3000);
+}
+
+async function loadReport(target) {
+    try {
+        const res = await fetch("/report/" + target);
+        const data = await res.json();
+        document.getElementById("report").innerText = data.report;
+    } catch {
+        document.getElementById("report").innerText = "No report available.";
+    }
+}
+
+async function loadOwner(target) {
+    const res = await fetch("/owner/" + target);
+    const data = await res.json();
+    const imagesDiv = document.getElementById("images");
+    imagesDiv.innerHTML = "";
+
+    const appearances = data.owner_detection.appearances || [];
+
+    data.images.forEach(imgPath => {
+        const container = document.createElement("div");
+        container.className = "image-container";
+
+        const img = document.createElement("img");
+        img.src = imgPath;
+
+        img.onload = () => {
+            const w = img.clientWidth;
+            const h = img.clientHeight;
+
+            appearances.forEach(face => {
+                if (!face.image || !face.bounding_box) return;
+                const filename = face.image.split("/").pop();
+                if (!imgPath.includes(filename)) return;
+
+                const bb = face.bounding_box;
+
+                const box = document.createElement("div");
+                box.className = "owner-box";
+
+                box.style.left = `${bb.Left * w}px`;
+                box.style.top = `${bb.Top * h}px`;
+                box.style.width = `${bb.Width * w}px`;
+                box.style.height = `${bb.Height * h}px`;
+
+                container.appendChild(box);
+            });
+        };
+
+        container.appendChild(img);
+        imagesDiv.appendChild(container);
+    });
+}
+
+async function loadTwitter(target) {
+    const res = await fetch("/twitter/" + target);
+    const data = await res.json();
+    document.getElementById("twitter").innerText =
+        JSON.stringify(data, null, 2);
+}
+
+</script>
+
+</body>
+</html>

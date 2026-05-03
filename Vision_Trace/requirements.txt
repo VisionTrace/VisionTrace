@@ -1,0 +1,22 @@
+# Web Server
+fastapi
+uvicorn
+gunicorn
+
+# AI & APIs
+google-genai
+google-api-python-client
+
+# AWS
+boto3
+
+# Scraping & Web
+selenium
+webdriver-manager
+beautifulsoup4
+twikit
+
+# Data & Utils
+pandas
+python-dotenv
+pillow

@@ -1,0 +1,197 @@
+import json
+import re
+import os
+import sys
+from pathlib import Path
+from app.paths import RESPONSES_DIR, RESULTS_DIR
+
+class StructuredExtractor:
+    def __init__(self, target_id: str, mode: str):
+        self.target_id = target_id
+        self.mode = mode 
+        
+        # Architecture-compliant path resolution
+        if mode == 'twitter_only':
+            self.base_resp = RESPONSES_DIR / f"twitter_only_{target_id}"
+            self.base_results = RESULTS_DIR / f"twitter_only_{target_id}"
+        else:
+            self.base_resp = RESPONSES_DIR / target_id
+            self.base_results = RESULTS_DIR / target_id
+            
+        os.makedirs(self.base_results, exist_ok=True)
+
+    def _prune_low_confidence(self, data, threshold_google=0.5, threshold_aws=50.0):
+        """
+        Recursively cleans the JSON tree.
+        1. Removes items with 'score' < 0.5 (Google Vision).
+        2. Removes items with 'Confidence' < 50.0 (AWS Rekognition).
+        3. Preserves structure (Does not flatten).
+        """
+        if isinstance(data, dict):
+            cleaned = {}
+            
+            # --- GOOGLE VISION FILTER (0.0 to 1.0) ---
+            if 'score' in data and isinstance(data['score'], (float, int)):
+                if data['score'] < threshold_google:
+                    return None
+            
+            if 'detectionConfidence' in data and isinstance(data['detectionConfidence'], (float, int)):
+                if data['detectionConfidence'] < threshold_google:
+                    return None
+
+            # --- AWS REKOGNITION FILTER (0.0 to 100.0) ---
+            if 'Confidence' in data and isinstance(data['Confidence'], (float, int)):
+                if data['Confidence'] < threshold_aws:
+                    return None 
+
+            for k, v in data.items():
+                pruned_v = self._prune_low_confidence(v, threshold_google, threshold_aws)
+                if pruned_v is not None:
+                    cleaned[k] = pruned_v
+            
+            return cleaned
+
+        elif isinstance(data, list):
+            cleaned_list = []
+            for item in data:
+                pruned_item = self._prune_low_confidence(item, threshold_google, threshold_aws)
+                if pruned_item is not None:
+                    cleaned_list.append(pruned_item)
+            return cleaned_list if cleaned_list else None
+            
+        else:
+            return data
+
+    def _pattern_harvest(self, text_list: list) -> dict:
+        """Forensic regex scanning for high-signal digital exhaust."""
+        blob = " ".join([str(t) for t in text_list if t])
+        
+        # --- 1. Names (Proper Noun Heuristic) ---
+        # Capture Capitalized Words that appear in sequence (e.g. "John Doe", "Perumbavoor Kerala")
+        proper = re.findall(r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\b', blob)
+        
+        # --- 2. Addresses (Street Pattern Heuristic) ---
+        # Looks for: Number + Name + Suffix (St, Rd, Ave, etc.)
+        address_pattern = r'\b\d{1,5}\s+(?:[A-Z][a-z\.]+\s+){1,3}(?:St|Ave|Rd|Blvd|Ln|Dr|Way|Ct|Pl|Terrace|Square|Lane|Road|Avenue|Street|Drive)\.?\b'
+        addresses = re.findall(address_pattern, blob)
+
+        # --- 3. House Numbers (Contextual) ---
+        # Looks for "#123" or "No. 123" to avoid confusing years (2023) with house numbers.
+        house_nums = re.findall(r'(?:#|No\.?|Apt\.?|Flat|Villa)\s?\d{1,4}[A-Za-z]?', blob, re.IGNORECASE)
+
+        return {
+            "identity_signals": {
+                "likely_names": list(set(proper)),
+                "likely_addresses": list(set(addresses)),
+                "house_numbers_context": list(set(house_nums)),
+                "dates_birthdays": list(set(re.findall(r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b', blob))),
+            },
+            "vehicles": list(set(re.findall(r'[A-Z]{2}\s?\d{2}\s?[A-Z]{1,2}\s?\d{4}', blob))),
+            "contact": {
+                "emails": list(set(re.findall(r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}', blob))),
+                "phones": list(set(re.findall(r'\+?\d{10,12}', blob))),
+                "handles": list(set(re.findall(r'@\w+', blob))),
+            },
+            "location_data": {
+                "zip_pincodes": list(set(re.findall(r'\b\d{6}\b', blob))),  # 6 digits for Indian Pincodes
+                "year_mentions": list(set(re.findall(r'\b(19|20)\d{2}\b', blob))),
+            },
+            "urls": list(set(re.findall(r'https?://\S+', blob))),
+            "raw_proper_nouns": list(set(proper)) # Backup list
+        }
+
+    def run_full_extraction(self):
+        print(f"🔬 Smart Filtering Extraction: {self.target_id} ({self.mode} mode)")
+        
+        # Load identity context
+        owner_data = {}
+        owner_file = self.base_resp / "owner_detection.json"
+        if owner_file.exists():
+            with open(owner_file, 'r') as f:
+                owner_data = json.load(f)
+
+        master_profile = {
+            "metadata": {"target": self.target_id, "mode": self.mode},
+            "identity_resolution": owner_data,
+            "intelligence_stream": [],
+            "deterministic_signals": {}
+        }
+
+        all_text_blobs = []
+
+        # 1. Instagram / Hybrid Stream
+        if self.mode in ['insta', 'hybrid']:
+            vision_path, aws_path = self.base_resp / "vision", self.base_resp / "aws"
+            
+            if vision_path.exists():
+                aws_files = {f.name: f for f in aws_path.glob("*.json")} if aws_path.exists() else {}
+                
+                for v_file in vision_path.glob("*.json"):
+                    with open(v_file, 'r') as f:
+                        v_raw = json.load(f)
+                    
+                    # 1. EXTRACT TEXT FIRST (Ensure essential data is saved before pruning)
+                    if 'responses' in v_raw:
+                        for resp in v_raw['responses']:
+                            text_ann = resp.get('textAnnotations', [])
+                            if text_ann:
+                                all_text_blobs.append(text_ann[0].get('description', ''))
+
+                    # 2. PRUNE NOISE (Remove low confidence visual labels)
+                    v_clean = self._prune_low_confidence(v_raw, threshold_google=0.5)
+
+                    # AWS Logic
+                    aws_clean = {}
+                    if v_file.name in aws_files:
+                        with open(aws_files[v_file.name], 'r') as f:
+                            aws_raw = json.load(f)
+                            # Extract Text
+                            all_text_blobs.extend([t.get('text', '') for t in aws_raw.get('text_clues', [])])
+                            # Prune Noise
+                            aws_clean = self._prune_low_confidence(aws_raw, threshold_aws=50.0)
+                    
+                    # 3. SAVE STRUCTURED DATA
+                    master_profile["intelligence_stream"].append({
+                        "file": v_file.name,
+                        "vision": v_clean,
+                        "aws": aws_clean
+                    })
+
+        # 2. Twitter Stream
+        if self.mode in ['twitter_only', 'hybrid']:
+            filename = "twitter_analysis.json" if self.mode == 'hybrid' else "tweet_analysis.json"
+            t_path = self.base_resp / filename
+            if t_path.exists():
+                with open(t_path, 'r') as f:
+                    t_nlp = json.load(f)
+                    all_text_blobs.append(str(t_nlp))
+                    master_profile["twitter_intelligence"] = t_nlp
+
+        # 3. Harvest Patterns (Runs on raw text, ignoring confidence thresholds)
+        master_profile["deterministic_signals"] = self._pattern_harvest(all_text_blobs)
+
+        # 4. Save
+        save_path = self.base_results / "structured_profile.json"
+        with open(save_path, 'w', encoding='utf-8') as f:
+            json.dump(master_profile, f, indent=2, ensure_ascii=False)
+
+        print(f"✅ Filtered Master Data saved → {save_path}")
+        return master_profile
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("\n❌ Error: No target provided.")
+        sys.exit(1)
+
+    target = sys.argv[1]
+    
+    # Auto-detect Mode
+    if (RESPONSES_DIR / f"twitter_only_{target}").exists():
+        mode = "twitter_only"
+    elif (RESPONSES_DIR / target / "twitter_analysis.json").exists():
+        mode = "hybrid"
+    else:
+        mode = "insta"
+
+    ext = StructuredExtractor(target, mode=mode)
+    ext.run_full_extraction()

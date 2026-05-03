@@ -1,0 +1,12 @@
+[2026-02-15 17:55:20 +0000] [3806] [INFO] Starting gunicorn 25.0.3
+[2026-02-15 17:55:20 +0000] [3806] [ERROR] Connection in use: ('0.0.0.0', 8000)
+[2026-02-15 17:55:20 +0000] [3806] [ERROR] connection to ('0.0.0.0', 8000) failed: [Errno 98] Address already in use
+[2026-02-15 17:55:21 +0000] [3806] [ERROR] Connection in use: ('0.0.0.0', 8000)
+[2026-02-15 17:55:21 +0000] [3806] [ERROR] connection to ('0.0.0.0', 8000) failed: [Errno 98] Address already in use
+[2026-02-15 17:55:22 +0000] [3806] [ERROR] Connection in use: ('0.0.0.0', 8000)
+[2026-02-15 17:55:22 +0000] [3806] [ERROR] connection to ('0.0.0.0', 8000) failed: [Errno 98] Address already in use
+[2026-02-15 17:55:23 +0000] [3806] [ERROR] Connection in use: ('0.0.0.0', 8000)
+[2026-02-15 17:55:23 +0000] [3806] [ERROR] connection to ('0.0.0.0', 8000) failed: [Errno 98] Address already in use
+[2026-02-15 17:55:24 +0000] [3806] [ERROR] Connection in use: ('0.0.0.0', 8000)
+[2026-02-15 17:55:24 +0000] [3806] [ERROR] connection to ('0.0.0.0', 8000) failed: [Errno 98] Address already in use
+[2026-02-15 17:55:25 +0000] [3806] [ERROR] Can't connect to ('0.0.0.0', 8000)
